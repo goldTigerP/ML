@@ -1,5 +1,6 @@
 data/*
 models/*
-
+/mnist_recognition/data/*
 
 *.png
+*.pyc
