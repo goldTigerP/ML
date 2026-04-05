@@ -140,6 +140,62 @@ def main():
     torch.save(model.state_dict(), './models/cnn_model.pth')
     print("模型已保存到 ./models/cnn_model.pth")
 
+    # 导出 ONNX 格式模型
+    print("\n导出 ONNX 模型...")
+    model.eval()
+    # MNIST 输入尺寸: batch=1, channels=1, height=28, width=28
+    dummy_input = torch.randn(1, 1, 28, 28, device=device)
+    onnx_path = './models/cnn_mnist.onnx'
+    torch.onnx.export(
+        model,
+        dummy_input,
+        onnx_path,
+        export_params=True,           # 将训练好的参数一起导出
+        opset_version=13,             # ONNX 算子集版本
+        do_constant_folding=True,     # 常量折叠优化
+        input_names=['input'],        # 输入节点名称
+        output_names=['output'],      # 输出节点名称
+        dynamic_axes={                # 支持动态 batch size
+            'input': {0: 'batch_size'},
+            'output': {0: 'batch_size'},
+        },
+    )
+    print(f"ONNX 模型已保存到 {onnx_path}")
+
+    # 验证 ONNX 模型
+    try:
+        import onnx
+        onnx_model = onnx.load(onnx_path)
+        onnx.checker.check_model(onnx_model)
+        print("ONNX 模型验证通过 ✓")
+    except ImportError:
+        print("提示: 安装 onnx 包 (pip install onnx) 可对导出的模型进行完整性验证")
+    except Exception as e:
+        print(f"ONNX 模型验证失败: {e}")
+
+    # 使用 ONNX Runtime 验证推理结果一致性
+    try:
+        import onnxruntime as ort
+        import numpy as np
+
+        ort_session = ort.InferenceSession(onnx_path)
+        dummy_np = dummy_input.cpu().numpy()
+        ort_outputs = ort_session.run(None, {'input': dummy_np})[0]
+
+        with torch.no_grad():
+            torch_outputs = model(dummy_input).cpu().numpy()
+
+        max_diff = np.max(np.abs(torch_outputs - ort_outputs))
+        print(f"PyTorch 与 ONNX Runtime 输出最大差异: {max_diff:.6e}")
+        if max_diff < 1e-5:
+            print("ONNX Runtime 推理结果一致性验证通过 ✓")
+        else:
+            print("警告: 输出差异较大，请检查导出是否正确")
+    except ImportError:
+        print("提示: 安装 onnxruntime (pip install onnxruntime) 可验证推理结果一致性")
+    except Exception as e:
+        print(f"ONNX Runtime 验证失败: {e}")
+
     # 绘制训练曲线
     plt.figure(figsize=(12, 4))
     plt.subplot(1, 2, 1)
